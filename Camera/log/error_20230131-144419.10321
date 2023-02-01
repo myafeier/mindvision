@@ -1,4 +1,0 @@
-Log file created at: 2023/01/31 14:44:19
-Running on machine: hj-dev-pc
-Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg
-E0131 14:44:19.007396 10321 MVCAMAPI.cpp:350] CameraInit Failed, err:32774,Version:2.1.0.34,FriendlyName:MV-GE630M-T#C0A81402,SN:059050910240
