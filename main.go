@@ -100,7 +100,7 @@ func preview(c *mindvision.Camera, selectIdx int) {
 
 func grap(c *mindvision.Camera, selectIdx int) {
 
-	if err := c.SetupForGrab(200, 1); err != nil {
+	if err := c.SetupForGrab(200, 3); err != nil {
 		panic(err)
 	}
 
