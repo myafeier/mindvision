@@ -2,7 +2,7 @@ package mindvision
 
 /*
 #cgo linux,!android CFLAGS: -I../mvsdk/include
-#cgo linux,!android LDFLAGS: -L${SRCDIR}/../mvsdk/lib -lMVSDK
+#cgo linux,!android LDFLAGS: -L../mvsdk/lib -lMVSDK
 #cgo darwin CFLAGS: -I../mvsdk/include
 #cgo darwin LDFLAGS: -L${SRCDIR}/../mvsdk/lib -lmvsdk
 #include "CameraDefine.h"
@@ -54,7 +54,7 @@ func (d *Device) ParseC(t C.tSdkCameraDevInfo) {
 	d.DriverVersion = C.GoString((*C.char)(unsafe.Pointer(&(t.acDriverVersion[0]))))
 }
 
-//sdk错误处理
+// sdk错误处理
 func sdkError(t C.int) (err error) {
 	switch t {
 	case C.CAMERA_STATUS_SUCCESS:

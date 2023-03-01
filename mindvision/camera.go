@@ -2,7 +2,7 @@ package mindvision
 
 /*
 #cgo linux,!android CFLAGS: -I../mvsdk/include
-#cgo linux,!android LDFLAGS: -L${SRCDIR}/../mvsdk/lib -lMVSDK
+#cgo linux,!android LDFLAGS: -L../mvsdk/lib -lMVSDK
 #cgo darwin CFLAGS: -I../mvsdk/include
 #cgo darwin LDFLAGS: -L${SRCDIR}/../mvsdk/lib -lmvsdk
 #include "CameraApi.h"
@@ -113,10 +113,11 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 }
 
 // 预览
-//  exposureTime 曝光时间，单位：毫秒
-//  gain int 增益
-//  previewChan 图片流
-//  ctx 停止信号
+//
+//	exposureTime 曝光时间，单位：毫秒
+//	gain int 增益
+//	previewChan 图片流
+//	ctx 停止信号
 func (s *Camera) Preview(ctx context.Context, exposureTime int, gain int, w io.Writer) (err error) {
 
 	// 相机模式切换成连续采集, 0为连续采集，1位软触发采集，用户每次调用CameraSoftTrigger(hCamera)获取一张图片
@@ -329,7 +330,7 @@ func (s *Camera) Grab(fn string) (err error) {
 	return
 }
 
-//设定增益
+// 设定增益
 func (s *Camera) SetGain(gain int) (err error) {
 
 	status := C.CameraSetAnalogGain(C.handle, C.int(gain))
