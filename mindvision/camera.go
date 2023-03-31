@@ -30,9 +30,12 @@ func init() {
 
 type Camera struct {
 	devices  [32]C.tSdkCameraDevInfo
-	bufsize  int //抓图缓存大小
-	width    int //图片最大尺寸
-	height   int //图片最大尺寸
+	idx      int     //设备序号
+	bufsize  int     //抓图缓存大小
+	width    int     //图片最大尺寸
+	height   int     //图片最大尺寸
+	expose   float64 //曝光时间
+	gain     int     //增益
 	filepath string
 }
 
