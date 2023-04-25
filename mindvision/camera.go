@@ -23,6 +23,8 @@ import (
 	//"github.com/myafeier/log"
 )
 
+var WithoutHardware bool = false //是否脱机测试
+
 func init() {
 	log.SetPrefix("[GoMindVersion]")
 	log.SetFlags(log.Llongfile | log.Ltime)
@@ -40,6 +42,9 @@ type Camera struct {
 }
 
 func (s *Camera) Init(filepath string) (err error) {
+	if WithoutHardware {
+		return
+	}
 	status := C.CameraSdkInit(C.int(0))
 	err = sdkError(status)
 	if err != nil {
@@ -60,6 +65,15 @@ func (s *Camera) UnInit() {
 
 // 查看设备列表
 func (s *Camera) EnumerateDevice() (list []*Device, err error) {
+	if WithoutHardware {
+		list = append(list, &Device{
+			Id:     1,
+			Name:   "MockDevice",
+			Expose: 1,
+			Gain:   100,
+		})
+		return
+	}
 	var count int = 32
 	// CameraEnumerateDevice 要求传入数组指针，及数组长度指针
 	status := C.CameraEnumerateDevice((*C.tSdkCameraDevInfo)(unsafe.Pointer(&(s.devices[0]))), (*C.int)(unsafe.Pointer(&count)))
@@ -80,6 +94,9 @@ func (s *Camera) EnumerateDevice() (list []*Device, err error) {
 
 // 选择并激活相机
 func (s *Camera) ActiveCamera(idx int) (err error) {
+	if WithoutHardware {
+		return
+	}
 	status := C.CameraInit((*C.tSdkCameraDevInfo)(unsafe.Pointer(&(s.devices[idx]))), C.int(-1), C.int(-1), (*C.CameraHandle)(unsafe.Pointer(&C.handle)))
 	err = sdkError(status)
 	if err != nil {
@@ -234,6 +251,10 @@ func (s *Camera) Preview(ctx context.Context, exposureTime int, gain int, w io.W
 
 // 设置以抓图
 func (s *Camera) SetupForGrab(gain int, exposeSecond float32) (err error) {
+
+	if WithoutHardware {
+		return
+	}
 	// 相机模式切换成连续采集, 0为连续采集，1位软触发采集，用户每次调用CameraSoftTrigger(hCamera)获取一张图片
 	status := C.CameraSetTriggerMode(C.handle, C.int(1))
 	err = sdkError(status)
@@ -279,6 +300,9 @@ func (s *Camera) SetupForGrab(gain int, exposeSecond float32) (err error) {
 
 // 获取一张图片
 func (s *Camera) Grab(fn string) (err error) {
+	if WithoutHardware {
+		return
+	}
 	// 分配RGB buffer，用来存放ISP输出的图像
 	//备注：从相机传输到PC端的是RAW数据，在PC端通过软件ISP转为RGB数据（如果是黑白相机就不需要转换格式，但是ISP还有其它处理，所以也需要分配这个buffer）
 
@@ -335,7 +359,9 @@ func (s *Camera) Grab(fn string) (err error) {
 
 // 设定增益
 func (s *Camera) SetGain(gain int) (err error) {
-
+	if WithoutHardware {
+		return
+	}
 	status := C.CameraSetAnalogGain(C.handle, C.int(gain))
 	err = sdkError(status)
 	if err != nil {
@@ -347,6 +373,9 @@ func (s *Camera) SetGain(gain int) (err error) {
 
 // 设定曝光时间
 func (s *Camera) SetExpose(expose float32) (err error) {
+	if WithoutHardware {
+		return
+	}
 	status := C.CameraSetExposureTime(C.handle, C.double(expose*1000000))
 	err = sdkError(status)
 	if err != nil {
