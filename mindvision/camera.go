@@ -11,12 +11,12 @@ CameraHandle handle;
 */
 import "C"
 import (
-	"context"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"log"
+	"sync"
 	"unsafe"
 
 	"github.com/pkg/errors"
@@ -24,6 +24,12 @@ import (
 )
 
 var WithoutHardware bool = false //是否脱机测试
+type CameraMode uint8            //摄像头工作模式
+
+const (
+	CameraModeOfPreview = 0 //预览模式，连续抓取
+	CameraModeOfCaputre = 1 //照片模式,默认
+)
 
 func init() {
 	log.SetPrefix("[GoMindVersion]")
@@ -31,20 +37,19 @@ func init() {
 }
 
 type Camera struct {
-	devices  [32]C.tSdkCameraDevInfo
-	idx      int     //设备序号
-	bufsize  int     //抓图缓存大小
-	width    int     //图片最大尺寸
-	height   int     //图片最大尺寸
-	expose   float64 //曝光时间
-	gain     int     //增益
-	filepath string
+	devices     [32]C.tSdkCameraDevInfo
+	idx         int     //设备序号
+	bufsize     int     //抓图缓存大小
+	width       int     //图片最大尺寸
+	height      int     //图片最大尺寸
+	expose      float64 //曝光时间
+	gain        int     //增益
+	filepath    string
+	mode        CameraMode
+	stopPreview bool //停止预览
 }
 
 func (s *Camera) Init(filepath string) (err error) {
-	if WithoutHardware {
-		return
-	}
 	status := C.CameraSdkInit(C.int(0))
 	err = sdkError(status)
 	if err != nil {
@@ -65,15 +70,6 @@ func (s *Camera) UnInit() {
 
 // 查看设备列表
 func (s *Camera) EnumerateDevice() (list []*Device, err error) {
-	if WithoutHardware {
-		list = append(list, &Device{
-			Id:     1,
-			Name:   "MockDevice",
-			Expose: 1,
-			Gain:   100,
-		})
-		return
-	}
 	var count int = 32
 	// CameraEnumerateDevice 要求传入数组指针，及数组长度指针
 	status := C.CameraEnumerateDevice((*C.tSdkCameraDevInfo)(unsafe.Pointer(&(s.devices[0]))), (*C.int)(unsafe.Pointer(&count)))
@@ -113,14 +109,21 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 		log.Println(err.Error())
 		return
 	}
-	if int(capability.sIspCapacity.bMonoSensor) == 1 {
-		s.bufsize = int(capability.sResolutionRange.iWidthMax * capability.sResolutionRange.iHeightMax)
-		status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_MONO8)
 
-	} else {
-		s.bufsize = int(capability.sResolutionRange.iWidthMax*capability.sResolutionRange.iHeightMax) * 3
-		status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_BGR8)
-	}
+	// 直接输出为8位灰度图片
+	s.bufsize = int(capability.sResolutionRange.iWidthMax * capability.sResolutionRange.iHeightMax)
+	status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_MONO8)
+
+	/*
+		if int(capability.sIspCapacity.bMonoSensor) == 1 {
+			s.bufsize = int(capability.sResolutionRange.iWidthMax * capability.sResolutionRange.iHeightMax)
+			status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_MONO8)
+
+		} else {
+			s.bufsize = int(capability.sResolutionRange.iWidthMax*capability.sResolutionRange.iHeightMax) * 3
+			status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_BGR8)
+		}
+	*/
 	s.width = int(capability.sResolutionRange.iWidthMax)
 	s.height = int(capability.sResolutionRange.iHeightMax)
 
@@ -132,55 +135,56 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 	return
 }
 
-// 预览
-//
-//	exposureTime 曝光时间，单位：毫秒
-//	gain int 增益
-//	previewChan 图片流
-//	ctx 停止信号
-func (s *Camera) Preview(ctx context.Context, exposureTime int, gain int, w io.Writer) (err error) {
+var mutex sync.Mutex
+
+// 切换工作模式，并进入工作状态
+func (s *Camera) ChangeMode(mode CameraMode, exposeTime float32, gain int) (err error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if mode == s.mode {
+		return
+	}
 
 	// 相机模式切换成连续采集, 0为连续采集，1位软触发采集，用户每次调用CameraSoftTrigger(hCamera)获取一张图片
-	status := C.CameraSetTriggerMode(C.handle, C.int(0))
+	status := C.CameraSetTriggerMode(C.handle, C.int(mode))
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	if mode == CameraModeOfCaputre {
+
+		err = s.setupForCapture(gain, exposeTime)
+
+	} else if mode == CameraModeOfPreview {
+		err = s.setupForPreview(s.width/4, s.height/4)
+	}
+	return
+}
+
+// 设置以预览
+func (s *Camera) setupForPreview(width, height int) (err error) {
+	status := C.CameraSetAnalogGain(C.handle, C.int(0))
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
 
-	status = C.CameraSetAnalogGain(C.handle, C.int(gain))
+	// 自动曝光模式
+	status = C.CameraSetAeState(C.handle, C.int(1))
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
-
-	// 手动曝光模式,并设置曝光时间
-	status = C.CameraSetAeState(C.handle, C.int(0))
-	err = sdkError(status)
-	if err != nil {
-		err = errors.WithStack(err)
-		return
-	}
-
-	//曝光0.5 s
-	status = C.CameraSetExposureTime(C.handle, C.double(exposureTime*1000))
-	err = sdkError(status)
-	if err != nil {
-		err = errors.WithStack(err)
-		return
-	}
-
 	// 设置预览分辨率
 	var roiResolution C.tSdkImageResolution
 	roiResolution.iIndex = 0xff
-	roiResolution.iWidth = C.int(s.width / 2)
-	roiResolution.iHeight = C.int(s.height / 2)
-	roiResolution.iWidthFOV = C.int(s.width / 2)
-	roiResolution.iHeightFOV = C.int(s.height / 2)
-
-	//roiResolution.iWidthZoomSw = 4
-	//roiResolution.iHeightZoomSw = 4
+	roiResolution.iWidth = C.int(width)
+	roiResolution.iHeight = C.int(height)
+	roiResolution.iWidthFOV = C.int(width)
+	roiResolution.iHeightFOV = C.int(height)
 
 	status = C.CameraSetImageResolution(C.handle, (*C.tSdkImageResolution)(unsafe.Pointer(&roiResolution)))
 	err = sdkError(status)
@@ -202,59 +206,12 @@ func (s *Camera) Preview(ctx context.Context, exposureTime int, gain int, w io.W
 		err = errors.WithStack(err)
 		return
 	}
-
-	t := C.int(0)
-	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
-	log.Printf("rawptr init:%+v\n", rawDataPtr)
-
-	var exit bool
-	go func() {
-		<-ctx.Done()
-		exit = true
-	}()
-
-	for {
-		if exit {
-			log.Printf("preview exit")
-			break
-		}
-
-		var frameInfo C.tSdkFrameHead
-		//rawDataPtr := C.CameraAlignMalloc(C.int(s.bufsize), 4)
-		//status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), (**C.BYTE)(unsafe.Pointer(&rawDataPtr)), 6000)
-		status = C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
-		err = sdkError(status)
-		if err != nil {
-			err = errors.WithStack(err)
-			return
-		}
-
-		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
-		img.Pix = C.GoBytes(unsafe.Pointer(*rawDataPtr), C.int(s.bufsize))
-		err = png.Encode(w, img)
-		if err != nil {
-			err = errors.WithStack(err)
-			return
-		}
-
-		status = C.CameraReleaseImageBuffer(C.handle, *rawDataPtr)
-		err = sdkError(status)
-		if err != nil {
-			err = errors.WithStack(err)
-			return
-		}
-
-	}
-
+	log.Println("设备进入预览模式")
 	return
 }
 
-// 设置以抓图
-func (s *Camera) SetupForGrab(gain int, exposeSecond float32) (err error) {
-
-	if WithoutHardware {
-		return
-	}
+// 设置以照相
+func (s *Camera) setupForCapture(gain int, exposeSecond float32) (err error) {
 	// 相机模式切换成连续采集, 0为连续采集，1位软触发采集，用户每次调用CameraSoftTrigger(hCamera)获取一张图片
 	status := C.CameraSetTriggerMode(C.handle, C.int(1))
 	err = sdkError(status)
@@ -294,7 +251,58 @@ func (s *Camera) SetupForGrab(gain int, exposeSecond float32) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	log.Println("设备已就绪，等待指令")
+	log.Println("设备进入拍照模式")
+	return
+}
+
+// 停止预览
+func (s *Camera) StopPreview() {
+	s.stopPreview = true
+}
+
+// 预览
+//
+//	exposureTime 曝光时间，单位：毫秒
+//	gain int 增益
+//	previewChan 图片流
+//	ctx 停止信号
+func (s *Camera) Preview(writer io.Writer) (err error) {
+	t := C.int(0)
+	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
+	log.Printf("rawptr init:%+v\n", rawDataPtr)
+	s.stopPreview = false
+
+	for {
+		if s.stopPreview {
+			log.Printf("preview exit")
+			break
+		}
+
+		var frameInfo C.tSdkFrameHead
+		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+		img.Pix = C.GoBytes(unsafe.Pointer(*rawDataPtr), C.int(s.bufsize))
+		err = png.Encode(writer, img)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+		status = C.CameraReleaseImageBuffer(C.handle, *rawDataPtr)
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+	}
+
 	return
 }
 
@@ -329,6 +337,10 @@ func (s *Camera) Grab(fn string) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
+
+	//img:=image.NewGray(image.Rect(0,0,int(frameInfo.iWidth),int(frameInfo.iHeight)))
+	// 可以通过循环读取rawDataPtr数据插入到img中
+
 	log.Printf("rawptr after get:%+v\n", rawDataPtr)
 	status = C.CameraImageProcess(C.handle, *rawDataPtr, outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)))
 	err = sdkError(status)
