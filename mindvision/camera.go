@@ -306,13 +306,19 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}(err)
 
+	w.Header().Add("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+	err = s.PreviewWithHttp(w)
+	return
+}
+
+// 获取mjpeg视频流
+func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
+	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+
 	err = s.ChangeMode(CameraModeOfPreview)
 	if err != nil {
 		return
 	}
-
-	w.Header().Add("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
 	t := C.int(0)
 	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
@@ -334,7 +340,7 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var frameInfo C.tSdkFrameHead
 		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
-		err := sdkError(status)
+		err = sdkError(status)
 		if err != nil {
 			err = errors.WithStack(err)
 			return
@@ -373,7 +379,6 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			err = errors.WithStack(err)
 			return
 		}
-
 	}
 }
 
