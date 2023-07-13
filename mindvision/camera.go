@@ -50,7 +50,10 @@ type Camera struct {
 	mjpegOption *jpeg.Options //
 }
 
-func (s *Camera) Init(filepath string, mjpegOption *jpeg.Options) (err error) {
+func (s *Camera) Init(filepath string, exposeSecond float64, gain int, mjpegOption *jpeg.Options) (err error) {
+	s.gain = gain
+	s.expose = exposeSecond
+
 	status := C.CameraSdkInit(C.int(0))
 	err = sdkError(status)
 	if err != nil {
@@ -141,16 +144,19 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 var mutex sync.Mutex
 
 // 切换工作模式，并进入工作状态
-func (s *Camera) ChangeMode(mode CameraMode, exposeTime float32, gain int) (err error) {
+func (s *Camera) ChangeMode(mode CameraMode) (err error) {
 	mutex.Lock()
 	defer mutex.Unlock()
+
+	if WithoutHardware {
+		return
+	}
 	if mode == s.mode {
 		return
 	}
 
 	if mode == CameraModeOfCaputre {
-		err = s.setupForCapture(gain, exposeTime)
-
+		err = s.setupForCapture(s.gain, s.expose)
 	} else if mode == CameraModeOfPreview {
 		err = s.setupForPreview(s.width, s.height)
 	}
@@ -167,18 +173,20 @@ func (s *Camera) setupForPreview(width, height int) (err error) {
 		return
 	}
 	// 自动曝光模式
-	status = C.CameraSetAeState(C.handle, C.int(0))
+	status = C.CameraSetAeState(C.handle, C.int(1))
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
-	status = C.CameraSetExposureTime(C.handle, C.double(30*1000))
-	err = sdkError(status)
-	if err != nil {
-		err = errors.WithStack(err)
-		return
-	}
+	/*
+		status = C.CameraSetExposureTime(C.handle, C.double(30*1000))
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+	*/
 	/*
 		// 设置预览分辨率
 		var roiResolution C.tSdkImageResolution
@@ -217,7 +225,7 @@ func (s *Camera) setupForPreview(width, height int) (err error) {
 }
 
 // 设置以照相
-func (s *Camera) setupForCapture(gain int, exposeSecond float32) (err error) {
+func (s *Camera) setupForCapture(gain int, exposeSecond float64) (err error) {
 	// 相机模式切换成连续采集, 0为连续采集，1位软触发采集，用户每次调用CameraSoftTrigger(hCamera)获取一张图片
 	status := C.CameraSetTriggerMode(C.handle, C.int(1))
 	err = sdkError(status)
@@ -289,6 +297,20 @@ func (s *Camera) StopPreview() {
 
 // 获取mjpeg视频流
 func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var err error
+	defer func(err error) {
+		if err != nil {
+			log.Printf("Error: %+v \n", err)
+			w.WriteHeader(500)
+			w.Write([]byte("System error"))
+		}
+	}(err)
+
+	err = s.ChangeMode(CameraModeOfPreview)
+	if err != nil {
+		return
+	}
+
 	w.Header().Add("Content-Type", "multipart/x-mixed-replace; boundary=frame")
 	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
@@ -300,25 +322,21 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("outptr init:%+v\n", outputPtr)
 	defer func() {
 		C.CameraAlignFree(outputPtr)
-		log.Printf("outptr defer:%+v\n", outputPtr)
 	}()
 
 	s.stopPreview = false
-	i := 0
 
 	for {
 		if s.stopPreview {
 			log.Println("preview mode closed")
 			return
 		}
-		i += 1
-		log.Print(i)
 
 		var frameInfo C.tSdkFrameHead
 		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
 		err := sdkError(status)
 		if err != nil {
-			log.Println(err)
+			err = errors.WithStack(err)
 			return
 		}
 
@@ -331,13 +349,13 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = C.CameraReleaseImageBuffer(C.handle, *rawDataPtr)
 		err = sdkError(status)
 		if err != nil {
-			log.Println(err)
+			err = errors.WithStack(err)
 			return
 		}
 
 		_, err = io.WriteString(w, boundary)
 		if err != nil {
-			log.Println(err)
+			err = errors.WithStack(err)
 			return
 		}
 
@@ -345,35 +363,26 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
 		copy(img.Pix, data)
 
-		/*
-			f1, _ := os.OpenFile(fmt.Sprintf("t%d.data", i), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-			f1.Write(data)
-			f1.Close()
-
-					f, _ := os.OpenFile(fmt.Sprintf("t%d.jpg", i), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-			jpeg.Encode(f, img, s.mjpegOption)
-			f.Close()
-		*/
-
 		err = jpeg.Encode(w, img, s.mjpegOption)
 		if err != nil {
-			log.Println(err)
+			err = errors.WithStack(err)
 			return
 		}
 		_, err = io.WriteString(w, "\r\n")
 		if err != nil {
-			log.Println(err)
+			err = errors.WithStack(err)
 			return
 		}
 
 	}
-
-	return
 }
 
 // 获取一张图片
 func (s *Camera) Grab(fn string) (err error) {
-	if WithoutHardware {
+
+	err = s.ChangeMode(CameraModeOfCaputre)
+	if err != nil {
+		err = errors.WithStack(err)
 		return
 	}
 	// 分配RGB buffer，用来存放ISP输出的图像
@@ -406,14 +415,14 @@ func (s *Camera) Grab(fn string) (err error) {
 	//img:=image.NewGray(image.Rect(0,0,int(frameInfo.iWidth),int(frameInfo.iHeight)))
 	// 可以通过循环读取rawDataPtr数据插入到img中
 
-	log.Printf("rawptr after get:%+v\n", rawDataPtr)
+	//	log.Printf("rawptr after get:%+v\n", rawDataPtr)
 	status = C.CameraImageProcess(C.handle, *rawDataPtr, outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)))
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
-	log.Printf("outptr after process:%+v\n", outputPtr)
+	// log.Printf("outptr after process:%+v\n", outputPtr)
 	//	blob := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
 
 	//fmt.Printf("head: %v\n,blob:%v\n", frameInfo, blob)
@@ -434,29 +443,11 @@ func (s *Camera) Grab(fn string) (err error) {
 }
 
 // 设定增益
-func (s *Camera) SetGain(gain int) (err error) {
-	if WithoutHardware {
-		return
-	}
-	status := C.CameraSetAnalogGain(C.handle, C.int(gain))
-	err = sdkError(status)
-	if err != nil {
-		log.Println(err.Error())
-		return
-	}
-	return
+func (s *Camera) SetGain(gain int) {
+	s.gain = gain
 }
 
 // 设定曝光时间
-func (s *Camera) SetExpose(expose float32) (err error) {
-	if WithoutHardware {
-		return
-	}
-	status := C.CameraSetExposureTime(C.handle, C.double(expose*1000000))
-	err = sdkError(status)
-	if err != nil {
-		log.Println(err.Error())
-		return
-	}
-	return
+func (s *Camera) SetExpose(exposeSecond float64) {
+	s.expose = exposeSecond
 }

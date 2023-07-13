@@ -39,7 +39,7 @@ var FileName string
 
 func main() {
 	c := new(mindvision.Camera)
-	c.Init("", &jpeg.Options{Quality: 60})
+	c.Init("", 3, 0, &jpeg.Options{Quality: 60})
 
 	if list, err := c.EnumerateDevice(); err != nil {
 		panic(err)
@@ -65,10 +65,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/stream", c)
 	mux.HandleFunc("/preview", func(w http.ResponseWriter, r *http.Request) {
-		c.ChangeMode(mindvision.CameraModeOfPreview, 0, 0)
+		c.ChangeMode(mindvision.CameraModeOfPreview)
 	})
 	mux.HandleFunc("/capture", func(w http.ResponseWriter, r *http.Request) {
-		c.ChangeMode(mindvision.CameraModeOfCaputre, 3, 0)
+		c.ChangeMode(mindvision.CameraModeOfCaputre)
 		c.Grab("test.bmp")
 	})
 	fmt.Println(http.ListenAndServe(":8080", mux))

@@ -1,0 +1,21 @@
+<html>
+  <body>
+    <canvas id="test_canvas" width="800px" height="600px" style="border: 1px solid #d3d3d3"> </canvas>
+    <script language="JavaScript">
+      var ctx = document.getElementById('test_canvas').getContext('2d')
+      var img = new Image()
+      img.onload = function () {
+        ctx.drawImage(img, 0, 0, 800, 600)
+      }
+
+      var theDate = new Date()
+      img.src = 'http://localhost:8080/stream'
+      window.setInterval('refreshCanvas()', 10)
+      function refreshCanvas() {
+        ctx.drawImage(img, 0, 0, 800, 600)
+      }
+    </script>
+    <br />
+  </body>
+  <br />
+</html>
