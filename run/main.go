@@ -71,5 +71,8 @@ func main() {
 		c.ChangeMode(mindvision.CameraModeOfCaputre)
 		c.Grab("test.bmp")
 	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./index.html")
+	})
 	fmt.Println(http.ListenAndServe(":8080", mux))
 }
