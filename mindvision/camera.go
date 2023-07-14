@@ -389,7 +389,7 @@ func (s *Camera) Grab(fn string) (err error) {
 	// 分配RGB buffer，用来存放ISP输出的图像
 	//备注：从相机传输到PC端的是RAW数据，在PC端通过软件ISP转为RGB数据（如果是黑白相机就不需要转换格式，但是ISP还有其它处理，所以也需要分配这个buffer）
 
-	//log.Printf("bufsize: %d\n", s.bufsize)
+	log.Printf("expose: %f,gain: %d\n", s.expose, s.gain)
 	outputPtr := C.CameraAlignMalloc(C.int(s.bufsize), 16)
 	defer func() {
 		C.CameraAlignFree(outputPtr)
