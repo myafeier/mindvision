@@ -342,7 +342,7 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 		}
 
 		var frameInfo C.tSdkFrameHead
-		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
+		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 15000)
 		err = sdkError(status)
 		if err != nil {
 			err = errors.WithStack(err)
