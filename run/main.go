@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"net/http"
+	"time"
 
 	"github.com/myafeier/mindvision/mindvision"
 )
@@ -39,6 +40,7 @@ var FileName string
 
 func main() {
 	c := new(mindvision.Camera)
+
 	c.Init("", 3, 0, &jpeg.Options{Quality: 60})
 
 	if list, err := c.EnumerateDevice(); err != nil {
@@ -69,7 +71,7 @@ func main() {
 	})
 	mux.HandleFunc("/capture", func(w http.ResponseWriter, r *http.Request) {
 		c.ChangeMode(mindvision.CameraModeOfCaputre)
-		c.Grab("test.bmp")
+		c.Grab(time.Now().Format("2003-01-12_16_04_05.bmp"))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./index.html")

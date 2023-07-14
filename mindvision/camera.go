@@ -46,7 +46,8 @@ type Camera struct {
 	gain        int     //增益
 	filepath    string
 	mode        CameraMode
-	stopPreview bool          //停止预览
+	stopPreview bool //停止预览
+	wait        sync.WaitGroup
 	mjpegOption *jpeg.Options //
 }
 
@@ -313,6 +314,8 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // 获取mjpeg视频流
 func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
+	s.wait.Wait()
+
 	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
 	err = s.ChangeMode(CameraModeOfPreview)
@@ -322,15 +325,15 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 
 	t := C.int(0)
 	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
-	log.Printf("rawptr init:%+v\n", rawDataPtr)
 
 	outputPtr := C.CameraAlignMalloc(C.int(s.bufsize), 16)
-	log.Printf("outptr init:%+v\n", outputPtr)
 	defer func() {
 		C.CameraAlignFree(outputPtr)
+		s.wait.Done()
 	}()
 
 	s.stopPreview = false
+	s.wait.Add(1)
 
 	for {
 		if s.stopPreview {
@@ -384,7 +387,9 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 
 // 获取一张图片
 func (s *Camera) Grab(fn string) (err error) {
+	s.wait.Wait()
 
+	s.wait.Add(1)
 	err = s.ChangeMode(CameraModeOfCaputre)
 	if err != nil {
 		err = errors.WithStack(err)
@@ -395,10 +400,10 @@ func (s *Camera) Grab(fn string) (err error) {
 
 	//log.Printf("bufsize: %d\n", s.bufsize)
 	outputPtr := C.CameraAlignMalloc(C.int(s.bufsize), 16)
-	log.Printf("outptr init:%+v\n", outputPtr)
 	defer func() {
 		C.CameraAlignFree(outputPtr)
 		log.Printf("outptr defer:%+v\n", outputPtr)
+		s.wait.Done()
 	}()
 
 	//当关闭连续取图时，软触发取图
@@ -408,7 +413,6 @@ func (s *Camera) Grab(fn string) (err error) {
 	//rawDataPtr := C.CameraAlignMalloc(C.int(s.bufsize), 4)
 	t := C.int(0)
 	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t))
-	log.Printf("rawptr init:%+v\n", rawDataPtr)
 	//status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), (**C.BYTE)(unsafe.Pointer(&rawDataPtr)), 6000)
 	status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
 	err = sdkError(status)
@@ -437,13 +441,13 @@ func (s *Camera) Grab(fn string) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	log.Printf("rawptr after release:%+v\n", rawDataPtr)
-	status = C.CameraSaveImage(C.handle, C.CString(fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_BMP, 0)
+	status = C.CameraSaveImage(C.handle, C.CString(s.filepath+fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_BMP, 0)
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
+	log.Printf("image captured:%s\n", s.filepath+fn)
 	return
 }
 
