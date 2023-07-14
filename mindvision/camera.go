@@ -154,7 +154,11 @@ func (s *Camera) ChangeMode(mode CameraMode) (err error) {
 	}
 	if mode == s.mode {
 		return
+	} else {
+		s.mode = mode
 	}
+
+	s.wait.Wait()
 
 	if mode == CameraModeOfCaputre {
 		err = s.setupForCapture(s.gain, s.expose)
@@ -219,8 +223,6 @@ func (s *Camera) setupForPreview(width, height int) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	s.stopPreview = false
-	s.mode = CameraModeOfPreview
 	log.Println("设备进入预览模式")
 	return
 }
@@ -285,15 +287,8 @@ func (s *Camera) setupForCapture(gain int, exposeSecond float64) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	s.stopPreview = true
-	s.mode = CameraModeOfCaputre
 	log.Println("设备进入拍照模式")
 	return
-}
-
-// 停止预览
-func (s *Camera) StopPreview() {
-	s.stopPreview = true
 }
 
 // 获取mjpeg视频流
@@ -319,8 +314,6 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 		return
 	}
 
-	s.wait.Wait()
-
 	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
 	t := C.int(0)
@@ -332,17 +325,16 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 		s.wait.Done()
 	}()
 
-	s.stopPreview = false
 	s.wait.Add(1)
 
 	for {
-		if s.stopPreview {
+		if s.mode != CameraModeOfPreview {
 			log.Println("preview mode closed")
 			return
 		}
 
 		var frameInfo C.tSdkFrameHead
-		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 15000)
+		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 3000)
 		err = sdkError(status)
 		if err != nil {
 			err = errors.WithStack(err)
@@ -392,7 +384,6 @@ func (s *Camera) Grab(fn string) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	s.wait.Wait()
 	s.wait.Add(1)
 
 	// 分配RGB buffer，用来存放ISP输出的图像
@@ -414,7 +405,7 @@ func (s *Camera) Grab(fn string) (err error) {
 	t := C.int(0)
 	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t))
 	//status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), (**C.BYTE)(unsafe.Pointer(&rawDataPtr)), 6000)
-	status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 6000)
+	status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 10000)
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
