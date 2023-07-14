@@ -314,14 +314,14 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // 获取mjpeg视频流
 func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
-	s.wait.Wait()
-
-	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-
 	err = s.ChangeMode(CameraModeOfPreview)
 	if err != nil {
 		return
 	}
+
+	s.wait.Wait()
+
+	boundary := "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
 	t := C.int(0)
 	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
@@ -387,14 +387,14 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 
 // 获取一张图片
 func (s *Camera) Grab(fn string) (err error) {
-	s.wait.Wait()
-
-	s.wait.Add(1)
 	err = s.ChangeMode(CameraModeOfCaputre)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
+	s.wait.Wait()
+	s.wait.Add(1)
+
 	// 分配RGB buffer，用来存放ISP输出的图像
 	//备注：从相机传输到PC端的是RAW数据，在PC端通过软件ISP转为RGB数据（如果是黑白相机就不需要转换格式，但是ISP还有其它处理，所以也需要分配这个buffer）
 
