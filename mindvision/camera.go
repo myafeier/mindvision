@@ -12,7 +12,9 @@ CameraHandle handle;
 import "C"
 import (
 	"image"
+	"image/draw"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -504,6 +506,85 @@ func (s *Camera) Grab(fn string) (err error) {
 		return
 	}
 	log.Printf("image captured:%s\n", s.filepath+fn)
+	return
+}
+
+func (s *Camera) GrabRoi(writer io.Writer, width, height int) (img image.Image, err error) {
+	err = s.ChangeMode(CameraModeOfCaputre)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	s.wait.Add(1)
+
+	// 分配RGB buffer，用来存放ISP输出的图像
+	//备注：从相机传输到PC端的是RAW数据，在PC端通过软件ISP转为RGB数据（如果是黑白相机就不需要转换格式，但是ISP还有其它处理，所以也需要分配这个buffer）
+
+	log.Printf("expose: %f,gain: %d\n", s.expose, s.gain)
+	outputPtr := C.CameraAlignMalloc(C.int(s.bufsize), 16)
+	defer func() {
+		C.CameraAlignFree(outputPtr)
+		log.Printf("outptr defer:%+v\n", outputPtr)
+		s.wait.Done()
+	}()
+
+	//当关闭连续取图时，软触发取图
+	C.CameraSoftTrigger(C.handle)
+
+	var frameInfo C.tSdkFrameHead
+	//rawDataPtr := C.CameraAlignMalloc(C.int(s.bufsize), 4)
+	t := C.int(0)
+	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t))
+	//status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), (**C.BYTE)(unsafe.Pointer(&rawDataPtr)), 6000)
+	status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 10000)
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+
+	//img:=image.NewGray(image.Rect(0,0,int(frameInfo.iWidth),int(frameInfo.iHeight)))
+	// 可以通过循环读取rawDataPtr数据插入到img中
+
+	//	log.Printf("rawptr after get:%+v\n", rawDataPtr)
+	status = C.CameraImageProcess(C.handle, *rawDataPtr, outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)))
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	// log.Printf("outptr after process:%+v\n", outputPtr)
+	//	blob := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
+
+	//fmt.Printf("head: %v\n,blob:%v\n", frameInfo, blob)
+	status = C.CameraReleaseImageBuffer(C.handle, *rawDataPtr)
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+
+	data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
+	origin := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+	copy(origin.Pix, data)
+	rec := image.Rect(0, 0, width, height)
+	dst := image.NewGray(rec)
+	pt := image.Pt((origin.Rect.Dx()-width)/2, (origin.Rect.Dy()-height)/2)
+	draw.Draw(dst, rec, origin, pt, draw.Src)
+	err = png.Encode(writer, dst)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	/*
+		status = C.CameraSaveImage(C.handle, C.CString(s.filepath+fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_BMP, 0)
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+		log.Printf("image captured:%s\n", s.filepath+fn)
+	*/
 	return
 }
 
