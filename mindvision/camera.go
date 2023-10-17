@@ -19,6 +19,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	//"github.com/myafeier/log"
 )
@@ -305,6 +306,70 @@ func (s *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "multipart/x-mixed-replace; boundary=frame")
 	err = s.PreviewWithHttp(w)
 	return
+}
+
+func (s *Camera) PreviewWithWebsockt(conn *websocket.Conn) (err error) {
+	err = s.ChangeMode(CameraModeOfPreview)
+	if err != nil {
+		return
+	}
+
+	t := C.int(0)
+	rawDataPtr := (**C.BYTE)(unsafe.Pointer(&t)) //这里是指向指针的指针，所以用一个int存储即可
+
+	outputPtr := C.CameraAlignMalloc(C.int(s.bufsize), 16)
+	defer func() {
+		C.CameraAlignFree(outputPtr)
+		s.wait.Done()
+	}()
+
+	s.wait.Add(1)
+
+	for {
+		if s.mode != CameraModeOfPreview {
+			log.Println("preview mode closed")
+			return
+		}
+
+		var frameInfo C.tSdkFrameHead
+		status := C.CameraGetImageBuffer(C.handle, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), rawDataPtr, 3000)
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+		status = C.CameraImageProcess(C.handle, *rawDataPtr, outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)))
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+		status = C.CameraReleaseImageBuffer(C.handle, *rawDataPtr)
+		err = sdkError(status)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+
+		data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
+		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+		copy(img.Pix, data)
+
+		var w io.WriteCloser
+		w, err = conn.NextWriter(2)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+		err = jpeg.Encode(w, img, s.mjpegOption)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+		w.Close()
+	}
+
 }
 
 // 获取mjpeg视频流
