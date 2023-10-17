@@ -73,6 +73,11 @@ func main() {
 		c.ChangeMode(mindvision.CameraModeOfCaputre)
 		c.Grab(time.Now().Format("2003-01-12_16_04_05.bmp"))
 	})
+	mux.HandleFunc("/capture1", func(w http.ResponseWriter, r *http.Request) {
+		c.ChangeMode(mindvision.CameraModeOfCaputre)
+		w.Header().Add("Content-Type", "image/png")
+		c.GrabRoi(w, 1000, 666)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./index.html")
 	})
