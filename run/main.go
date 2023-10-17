@@ -41,7 +41,7 @@ var FileName string
 func main() {
 	c := new(mindvision.Camera)
 
-	c.Init("", 3, 0, &jpeg.Options{Quality: 60})
+	c.Init("", 2, 100, &jpeg.Options{Quality: 60})
 
 	if list, err := c.EnumerateDevice(); err != nil {
 		panic(err)

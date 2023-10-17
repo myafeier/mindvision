@@ -567,9 +567,19 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (img image.Image, 
 	data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
 	origin := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
 	copy(origin.Pix, data)
+
+	/*
+		err = png.Encode(writer, origin)
+		if err != nil {
+			err = errors.WithStack(err)
+			return
+		}
+		return
+	*/
+
 	rec := image.Rect(0, 0, width, height)
 	dst := image.NewGray(rec)
-	pt := image.Pt((origin.Rect.Dx()-width)/2, (origin.Rect.Dy()-height)/2)
+	pt := image.Pt((int(frameInfo.iWidth)-width)/2, (int(frameInfo.iHeight)-height)/2)
 	draw.Draw(dst, rec, origin, pt, draw.Src)
 	err = png.Encode(writer, dst)
 	if err != nil {
