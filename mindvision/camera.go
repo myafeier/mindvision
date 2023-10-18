@@ -14,7 +14,6 @@ import (
 	"image"
 	"image/draw"
 	"image/jpeg"
-	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
+	"golang.org/x/image/bmp"
 	//"github.com/myafeier/log"
 )
 
@@ -581,7 +581,7 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 	dst := image.NewGray(rec)
 	pt := image.Pt((int(frameInfo.iWidth)-width)/2, (int(frameInfo.iHeight)-height)/2)
 	draw.Draw(dst, rec, origin, pt, draw.Src)
-	err = png.Encode(writer, dst)
+	err = bmp.Encode(writer, dst)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
@@ -599,11 +599,26 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 }
 
 // 设定增益
-func (s *Camera) SetGain(gain int) {
+func (s *Camera) SetGain(gain int) (err error) {
 	s.gain = gain
+	status := C.CameraSetAnalogGain(C.handle, C.int(gain))
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+	}
+	return
+
 }
 
 // 设定曝光时间
-func (s *Camera) SetExpose(exposeSecond float64) {
+func (s *Camera) SetExpose(exposeSecond float64) (err error) {
 	s.expose = exposeSecond
+
+	//曝光3秒
+	status := C.CameraSetExposureTime(C.handle, C.double(exposeSecond*1000000))
+	err = sdkError(status)
+	if err != nil {
+		err = errors.WithStack(err)
+	}
+	return
 }
