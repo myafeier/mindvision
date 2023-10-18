@@ -509,7 +509,7 @@ func (s *Camera) Grab(fn string) (err error) {
 	return
 }
 
-func (s *Camera) GrabRoi(writer io.Writer, width, height int) (img image.Image, err error) {
+func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 	err = s.ChangeMode(CameraModeOfCaputre)
 	if err != nil {
 		err = errors.WithStack(err)
