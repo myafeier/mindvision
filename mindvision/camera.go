@@ -118,7 +118,7 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 		log.Println(err.Error())
 		return
 	}
-	status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_MONO8)
+	status = C.CameraSetIspOutFormat(C.handle, C.CAMERA_MEDIA_TYPE_MONO16)
 	err = sdkError(status)
 	if err != nil {
 		log.Println(err.Error())
@@ -129,7 +129,7 @@ func (s *Camera) ActiveCamera(idx int) (err error) {
 	s.height = int(capability.sResolutionRange.iHeightMax)
 
 	// 直接输出为8位灰度图片
-	s.bufsize = s.width * s.height
+	s.bufsize = s.width * s.height * 2
 
 	/*
 		if int(capability.sIspCapacity.bMonoSensor) == 1 {
@@ -355,7 +355,7 @@ func (s *Camera) PreviewWithWebsockt(conn *websocket.Conn) (err error) {
 		}
 
 		data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
-		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+		img := image.NewGray16(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
 		copy(img.Pix, data)
 
 		var w io.WriteCloser
@@ -428,7 +428,7 @@ func (s *Camera) PreviewWithHttp(w http.ResponseWriter) (err error) {
 		}
 
 		data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
-		img := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+		img := image.NewGray16(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
 		copy(img.Pix, data)
 
 		err = jpeg.Encode(w, img, s.mjpegOption)
@@ -565,7 +565,7 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 	}
 
 	data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
-	origin := image.NewGray(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
+	origin := image.NewGray16(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
 	copy(origin.Pix, data)
 
 	/*
@@ -578,7 +578,7 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 	*/
 
 	rec := image.Rect(0, 0, width, height)
-	dst := image.NewGray(rec)
+	dst := image.NewGray16(rec)
 	pt := image.Pt((int(frameInfo.iWidth)-width)/2, (int(frameInfo.iHeight)-height)/2)
 	draw.Draw(dst, rec, origin, pt, draw.Src)
 	err = bmp.Encode(writer, dst)
