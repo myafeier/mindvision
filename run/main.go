@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/myafeier/mindvision/mindvision"
@@ -63,6 +64,14 @@ func main() {
 	if err := c.ActiveCamera(selectIdx); err != nil {
 		panic(err)
 	}
+	c.ChangeMode(mindvision.CameraModeOfCaputre)
+	f, err := os.OpenFile("./roi_16.png", os.O_CREATE|os.O_RDWR, 0744)
+	if err != nil {
+		panic(err)
+	}
+
+	c.GrabRoi(f, 100, 100)
+	os.Exit(0)
 
 	mux := http.NewServeMux()
 	mux.Handle("/stream", c)

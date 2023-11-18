@@ -11,9 +11,11 @@ CameraHandle handle;
 */
 import "C"
 import (
+	"encoding/binary"
 	"image"
-	"image/draw"
+	"image/color"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -22,7 +24,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
-	"golang.org/x/image/bmp"
 	//"github.com/myafeier/log"
 )
 
@@ -499,7 +500,7 @@ func (s *Camera) Grab(fn string) (err error) {
 		err = errors.WithStack(err)
 		return
 	}
-	status = C.CameraSaveImage(C.handle, C.CString(s.filepath+fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_BMP, 0)
+	status = C.CameraSaveImage(C.handle, C.CString(s.filepath+fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_RAW_16BIT, 0)
 	err = sdkError(status)
 	if err != nil {
 		err = errors.WithStack(err)
@@ -566,35 +567,21 @@ func (s *Camera) GrabRoi(writer io.Writer, width, height int) (err error) {
 
 	data := C.GoBytes(unsafe.Pointer(outputPtr), C.int(s.bufsize))
 	origin := image.NewGray16(image.Rect(0, 0, int(frameInfo.iWidth), int(frameInfo.iHeight)))
-	copy(origin.Pix, data)
 
-	/*
-		err = png.Encode(writer, origin)
-		if err != nil {
-			err = errors.WithStack(err)
-			return
+	for y := 0; y < int(frameInfo.iHeight); y++ {
+		for x := 0; x < int(frameInfo.iWidth); x++ {
+			pixelValue := binary.LittleEndian.Uint16(data[y*int(frameInfo.iWidth)*2+x*2 : y*int(frameInfo.iWidth)*2+x*2+2])
+			origin.SetGray16(x, y, color.Gray16{Y: pixelValue})
 		}
-		return
-	*/
-
-	rec := image.Rect(0, 0, width, height)
-	dst := image.NewGray16(rec)
-	pt := image.Pt((int(frameInfo.iWidth)-width)/2, (int(frameInfo.iHeight)-height)/2)
-	draw.Draw(dst, rec, origin, pt, draw.Src)
-	err = bmp.Encode(writer, dst)
+	}
+	minx, miny := (int(frameInfo.iWidth)-width)/2, (int(frameInfo.iHeight)-height)/2
+	rect := image.Rect(minx, miny, minx+width, miny+height)
+	dst := origin.SubImage(rect)
+	err = png.Encode(writer, dst)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
-	/*
-		status = C.CameraSaveImage(C.handle, C.CString(s.filepath+fn), outputPtr, (*C.tSdkFrameHead)(unsafe.Pointer(&frameInfo)), C.FILE_BMP, 0)
-		err = sdkError(status)
-		if err != nil {
-			err = errors.WithStack(err)
-			return
-		}
-		log.Printf("image captured:%s\n", s.filepath+fn)
-	*/
 	return
 }
 
